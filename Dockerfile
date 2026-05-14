@@ -36,6 +36,8 @@ COPY --from=builder --chown=app:app /app/.next/static ./.next/static
 COPY --from=builder --chown=app:app /app/prisma ./prisma
 COPY --from=builder --chown=app:app /app/node_modules/.prisma ./node_modules/.prisma
 COPY --from=builder --chown=app:app /app/node_modules/@prisma ./node_modules/@prisma
+# Seed script needs bcryptjs at runtime — it isn't picked up by Next's trace
+COPY --from=builder --chown=app:app /app/node_modules/bcryptjs ./node_modules/bcryptjs
 COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 RUN chmod +x /usr/local/bin/docker-entrypoint.sh && mkdir -p /app/public/uploads/floorplans && chown -R app:app /app/public/uploads
 USER app
