@@ -1,0 +1,174 @@
+// TableBook — desk booking schema
+// Postgres in production (Coolify). All identifiers cuid for portability.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  USER
+  ADMIN
+  REPORTER
+}
+
+enum AccessibilityFeature {
+  WHEELCHAIR_ACCESSIBLE
+  STEP_FREE_ACCESS
+  ADJUSTABLE_HEIGHT_DESK
+  LARGE_MONITOR
+  BRAILLE_LABEL
+  SCREEN_READER_READY
+  HEARING_LOOP
+  QUIET_ZONE
+  ERGONOMIC_CHAIR
+  NEAR_WINDOW
+  STANDING_DESK
+  POWER_SOCKETS_LEFT
+  POWER_SOCKETS_RIGHT
+}
+
+enum BookingStatus {
+  CONFIRMED
+  CANCELLED
+  CHECKED_IN
+  NO_SHOW
+}
+
+enum NotificationType {
+  BOOKING_CONFIRMED
+  BOOKING_CANCELLED
+  FLOOR_CLOSED
+  FLOOR_REOPENED
+  ADMIN_MESSAGE
+  ACCESSIBILITY_REQUEST
+}
+
+model User {
+  id            String   @id @default(cuid())
+  email         String   @unique
+  name          String?
+  passwordHash  String
+  role          Role     @default(USER)
+  active        Boolean  @default(true)
+  // Accessibility profile — needs the user has on bookings
+  needs         AccessibilityFeature[] @default([])
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  bookings      Booking[]
+  notifications Notification[]
+  createdShutdowns FloorShutdown[] @relation("ShutdownCreator")
+  uploadedFloorPlans FloorPlan[] @relation("FloorPlanUploader")
+}
+
+model Building {
+  id          String   @id @default(cuid())
+  name        String
+  address     String?
+  createdAt   DateTime @default(now())
+  floors      Floor[]
+}
+
+model Floor {
+  id          String   @id @default(cuid())
+  buildingId  String
+  building    Building @relation(fields: [buildingId], references: [id], onDelete: Cascade)
+  number      Int
+  name        String
+  // Energy / HVAC zone label so reports can group savings
+  hvacZone    String?
+  // Active = floor is open. Shutdowns history is in FloorShutdown.
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+
+  desks       Desk[]
+  shutdowns   FloorShutdown[]
+  floorPlan   FloorPlan?
+
+  @@unique([buildingId, number])
+}
+
+model Desk {
+  id              String   @id @default(cuid())
+  floorId         String
+  floor           Floor    @relation(fields: [floorId], references: [id], onDelete: Cascade)
+  code            String
+  // Position on the floor plan (percent 0-100 for responsiveness)
+  x               Float?
+  y               Float?
+  features        AccessibilityFeature[] @default([])
+  // Bookable = enabled by admin (broken desk etc can be disabled without deletion)
+  bookable        Boolean  @default(true)
+  notes           String?
+  createdAt       DateTime @default(now())
+
+  bookings        Booking[]
+
+  @@unique([floorId, code])
+  @@index([floorId])
+}
+
+model Booking {
+  id          String        @id @default(cuid())
+  userId      String
+  user        User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  deskId      String
+  desk        Desk          @relation(fields: [deskId], references: [id], onDelete: Cascade)
+  // Day of booking — bookings are full-day for v1 (matches typical hot-desk usage)
+  date        DateTime      @db.Date
+  status      BookingStatus @default(CONFIRMED)
+  // Captured at booking time so reports can analyse demand for accessible desks
+  requestedFeatures AccessibilityFeature[] @default([])
+  createdAt   DateTime      @default(now())
+  cancelledAt DateTime?
+
+  @@unique([deskId, date])
+  @@index([userId, date])
+  @@index([date])
+}
+
+model FloorShutdown {
+  id          String   @id @default(cuid())
+  floorId     String
+  floor       Floor    @relation(fields: [floorId], references: [id], onDelete: Cascade)
+  startsAt    DateTime
+  endsAt      DateTime?
+  reason      String?
+  // Estimated daily kWh saved (admin input) — used in reports
+  estimatedKwhPerDay Float?
+  createdById String
+  createdBy   User     @relation("ShutdownCreator", fields: [createdById], references: [id])
+  createdAt   DateTime @default(now())
+
+  @@index([floorId, startsAt])
+}
+
+model FloorPlan {
+  id          String   @id @default(cuid())
+  floorId     String   @unique
+  floor       Floor    @relation(fields: [floorId], references: [id], onDelete: Cascade)
+  imagePath   String   // /uploads/floorplans/{id}.png
+  mimeType    String
+  uploadedById String
+  uploadedBy  User     @relation("FloorPlanUploader", fields: [uploadedById], references: [id])
+  uploadedAt  DateTime @default(now())
+}
+
+model Notification {
+  id          String           @id @default(cuid())
+  userId      String
+  user        User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type        NotificationType
+  title       String
+  body        String
+  read        Boolean          @default(false)
+  link        String?
+  createdAt   DateTime         @default(now())
+
+  @@index([userId, read, createdAt])
+}

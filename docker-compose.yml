@@ -1,0 +1,38 @@
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: tablebook
+      POSTGRES_PASSWORD: tablebook
+      POSTGRES_DB: tablebook
+    ports:
+      - "5432:5432"
+    volumes:
+      - tablebook_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U tablebook"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  app:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://tablebook:tablebook@db:5432/tablebook?schema=public
+      AUTH_SECRET: ${AUTH_SECRET:-change-me-in-prod-please-32-characters}
+      AUTH_TRUST_HOST: "true"
+      NEXTAUTH_URL: ${NEXTAUTH_URL:-http://localhost:3000}
+      NODE_ENV: production
+    ports:
+      - "3000:3000"
+    volumes:
+      - tablebook_uploads:/app/public/uploads
+
+volumes:
+  tablebook_pgdata:
+  tablebook_uploads:
