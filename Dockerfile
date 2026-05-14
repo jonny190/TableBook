@@ -2,21 +2,21 @@
 FROM node:22-alpine AS deps
 RUN apk add --no-cache libc6-compat openssl
 WORKDIR /app
-# Coolify may pass NODE_ENV=production as a build arg, which by default makes
-# `npm install` skip devDependencies. We need devDeps (typescript, tailwind,
-# postcss, tsx) to build, so force include them and run in development mode
-# for the dependency-install step only.
-ENV NODE_ENV=development
 COPY package.json package-lock.json* ./
 COPY prisma ./prisma
-RUN npm install --include=dev --no-audit --no-fund
+# Force devDependencies in even when the platform exports NODE_ENV=production
+# as a build arg. Override per-command rather than via ENV so the rest of the
+# stage isn't running under NODE_ENV=development (which would also cause
+# next build to ship the dev react-dom).
+RUN NODE_ENV=development npm install --include=dev --no-audit --no-fund
 
 FROM node:22-alpine AS builder
 RUN apk add --no-cache libc6-compat openssl
 WORKDIR /app
-# Same reason — keep devDeps available during the build.
-ENV NODE_ENV=development
 ENV NEXT_TELEMETRY_DISABLED=1
+# Use production for the build so next ships the prod react-dom + skips
+# dev warnings on /404 etc.
+ENV NODE_ENV=production
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 RUN npx prisma generate
